@@ -87,9 +87,11 @@ class HBC74:
         if disasm:
             bc = assemble(insts)
             
-        assert len(bc) <= bytecodeSizeInBytes, "Overflowed instruction length is not supported yet."
+        # assert len(bc) <= bytecodeSizeInBytes, "Overflowed instruction length is not supported yet."
+        oldBytecodeSizeBytes = functionHeader["bytecodeSizeInBytes"]
         functionHeader["bytecodeSizeInBytes"] = len(bc)
-        memcpy(self.getObj()["inst"], bc, start, len(bc))
+
+        self.writeFunctionInstructions(bc, start, offset, oldBytecodeSizeBytes)
         
     def getStringCount(self):
         return self.getObj()["header"]["stringCount"]
@@ -231,3 +233,21 @@ class HBC74:
             keys.append(val)
         
         return t, keys
+
+    def extendFunctionOffsets(self, fidOffset, extendValue):
+        assert extendValue > 0, "Offset to extend must be larger than 0." 
+        for fid, header in enumerate(self.getObj()['functionHeaders']):
+            if header['offset'] > fidOffset:
+                self.getObj()['functionHeaders'][fid]['offset'] += extendValue
+
+    def writeFunctionInstructions(self, bc, instStartOffset, fidOffset, oldSize):
+        memcpy(self.getObj()["inst"], bc, instStartOffset, oldSize)
+
+        newBytecodeLength = len(bc)
+        if newBytecodeLength > oldSize:
+            difference = newBytecodeLength - oldSize
+            self.extendFunctionOffsets(fidOffset, difference)
+            
+            # Insert remaining bytecode
+            bc = bc[oldSize:]
+            self.getObj()["inst"] = self.getObj()["inst"][:instStartOffset + oldSize] + bc + self.getObj()["inst"][instStartOffset + oldSize:]
