@@ -241,13 +241,14 @@ class HBC74:
                 self.getObj()['functionHeaders'][fid]['offset'] += extendValue
 
     def writeFunctionInstructions(self, bc, instStartOffset, fidOffset, oldSize):
-        memcpy(self.getObj()["inst"], bc, instStartOffset, oldSize)
-
         newBytecodeLength = len(bc)
         if newBytecodeLength > oldSize:
+            memcpy(self.getObj()["inst"], bc, instStartOffset, oldSize)
             difference = newBytecodeLength - oldSize
             self.extendFunctionOffsets(fidOffset, difference)
             
             # Insert remaining bytecode
             bc = bc[oldSize:]
             self.getObj()["inst"] = self.getObj()["inst"][:instStartOffset + oldSize] + bc + self.getObj()["inst"][instStartOffset + oldSize:]
+        else:
+            memcpy(self.getObj()["inst"], bc, instStartOffset, newBytecodeLength)
