@@ -176,30 +176,13 @@ def export(obj, f):
     
     align(f)
     
+    functionHeaderPos = f.tell()
     overflowedFunctionHeaders = []
     # Segment 2: Function Header
     functionHeaders = obj["functionHeaders"]
     for i in range(header["functionCount"]):
         functionHeader = functionHeaders[i]
         if "small" in functionHeader:
-            smallFnHeader = functionHeader['small']
-            oldLargeHeaderOffset = (smallFnHeader["infoOffset"] << 16 )  | smallFnHeader["offset"]
-            oldLargeHeaderInstOffset = functionHeader['offset']
-            print(f"export() : oldLargeHeaderOffset = {oldLargeHeaderOffset}, largeHeaderInstOffset = {oldLargeHeaderInstOffset}")
-
-            adjustOffset = functionHeader.get('adjust_offset', 0)
-            functionHeader['offset'] += adjustOffset
-            # overflowAdjustOffset = obj.get('additionalInstructionSize', 0)
-            # functionHeader['offset'] += adjustOffset + overflowAdjustOffset
-            # functionHeader['infoOffset'] += adjustOffset + overflowAdjustOffset
-
-            overFlowedHeaderOffset = (smallFnHeader["infoOffset"] << 16 )  | smallFnHeader["offset"]
-            overFlowedHeaderOffset += obj.get('additionalInstructionSize', 0)
-            smallFnHeader['offset'] = overFlowedHeaderOffset & 0xFFFF
-            smallFnHeader['infoOffset'] = overFlowedHeaderOffset >> 16
-
-            print(f"export() : newLargeHeaderOffset = {overFlowedHeaderOffset}, newLargeHeaderInstOffset = {functionHeader['offset']}")
-
             functionHeader['small_pos'] = f.tell()
             for key in smallFunctionHeaderS:
                 write(f, functionHeader["small"][key], smallFunctionHeaderS[key])
@@ -209,7 +192,7 @@ def export(obj, f):
         else:
             # Adjust offset for additional instructions
             functionHeader['offset'] += functionHeader.get('adjust_offset', 0)
-            # functionHeader['infoOffset'] += obj.get("additionalInstructionSize", 0)
+
             # Write the header structure
             for key in smallFunctionHeaderS:
                 write(f, functionHeader[key], smallFunctionHeaderS[key])
@@ -306,13 +289,31 @@ def export(obj, f):
     # Write remaining
     f.writeall(obj["inst"])
 
+    padLength = align(f)
 
-    print(f"Overflow section offset: {obj.get('additionalInstructionSize', 0)}")
     ## Write Overflowed Function Header
     for overflowedFunctionHeader in overflowedFunctionHeaders:
         smallFunctionHeader = overflowedFunctionHeader["small"]
         large_offset = (smallFunctionHeader["infoOffset"] << 16 )  | smallFunctionHeader["offset"]
+        large_offset += padLength + obj.get("additionalInstructionSize", 0)
+
+        overflowedFunctionHeader['infoOffset'] += padLength + obj.get("additionalInstructionSize", 0)
+        overflowedFunctionHeader['offset'] += overflowedFunctionHeader.get("adjust_offset", 0)
+
+        smallFunctionHeader['infoOffset'] = large_offset >> 16
+        smallFunctionHeader['offset']     = large_offset & 0xFFFF
+
         f.seek(large_offset)
         for key in functionHeaderS:
             write(f, overflowedFunctionHeader[key], functionHeaderS[key])
 
+    ## Adjust Function Headers again
+    f.seek(functionHeaderPos)
+    for functionHeader in functionHeaders:
+        if 'small' not in functionHeader:
+            functionHeader['infoOffset'] += padLength + obj.get("additionalInstructionSize", 0)
+            for key in smallFunctionHeaderS:
+                write(f, functionHeader[key], smallFunctionHeaderS[key])
+        else:
+            for key in smallFunctionHeaderS:
+                write(f, functionHeader['small'][key], smallFunctionHeaderS[key])
