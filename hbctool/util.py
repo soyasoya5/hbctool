@@ -77,10 +77,11 @@ class BitWriter(object):
         assert alignment > 0 and alignment <= 8 and ((alignment & (alignment - 1)) == 0), "Support alignment as many as 8 bytes."
         l = self.tell()
         if l % alignment == 0:
-            return
+            return 0
 
         b = alignment - (l % alignment)
         self.writeall([0] * (b))
+        return b
     
     def writeall(self, bs):
         self.out.write(bytes(bs))

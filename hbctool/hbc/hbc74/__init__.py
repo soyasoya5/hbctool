@@ -91,7 +91,7 @@ class HBC74:
         oldBytecodeSizeBytes = functionHeader["bytecodeSizeInBytes"]
         functionHeader["bytecodeSizeInBytes"] = len(bc)
 
-        self.writeFunctionInstructions(bc, start, offset, oldBytecodeSizeBytes)
+        self.writeFunctionInstructions(bc, start, oldBytecodeSizeBytes)
         
     def getStringCount(self):
         return self.getObj()["header"]["stringCount"]
@@ -234,21 +234,28 @@ class HBC74:
         
         return t, keys
 
-    def extendFunctionOffsets(self, fidOffset, extendValue):
+    def recordAddedBytes(self, instStartOffset, extendValue):
         assert extendValue > 0, "Offset to extend must be larger than 0." 
-        for fid, header in enumerate(self.getObj()['functionHeaders']):
-            if header['offset'] > fidOffset:
-                self.getObj()['functionHeaders'][fid]['offset'] += extendValue
 
-    def writeFunctionInstructions(self, bc, instStartOffset, fidOffset, oldSize):
-        newBytecodeLength = len(bc)
-        if newBytecodeLength > oldSize:
-            memcpy(self.getObj()["inst"], bc, instStartOffset, oldSize)
-            difference = newBytecodeLength - oldSize
-            self.extendFunctionOffsets(fidOffset, difference)
-            
-            # Insert remaining bytecode
-            bc = bc[oldSize:]
-            self.getObj()["inst"] = self.getObj()["inst"][:instStartOffset + oldSize] + bc + self.getObj()["inst"][instStartOffset + oldSize:]
+        self.getObj()['additionalInstructionSize'] = self.getObj().get('additionalInstructionSize', 0) + extendValue
+        for fid, header in enumerate(self.getObj()['functionHeaders']):
+            headerInstStartOffset = header['offset'] - self.getObj()['instOffset']
+            if not self.overflowFlagSet(fid) and headerInstStartOffset > instStartOffset:
+                header['adjust_offset'] = header.get('adjust_offset', 0) + extendValue
+
+    def writeFunctionInstructions(self, bc, instStartOffset, oldSize):
+        newSize = len(bc)
+        if newSize > oldSize:
+            oldLen = len(self.getObj()['inst'])
+            difference = newSize - oldSize
+            self.recordAddedBytes(instStartOffset, difference)
+            self.getObj()['inst'] = self.getObj()['inst'][:instStartOffset] + bc + self.getObj()['inst'][instStartOffset+oldSize:]
+            assert len(self.getObj()['inst']) > oldLen, "Old instructions not fully copied over"
         else:
-            memcpy(self.getObj()["inst"], bc, instStartOffset, newBytecodeLength)
+            memcpy(self.getObj()["inst"], bc, instStartOffset, newSize)
+
+    def overflowFlagSet(self, fid):
+        assert fid < len(self.getObj()['functionHeaders'])
+
+        functionFlags = self.getObj()['functionHeaders'][fid]["flags"]
+        return (functionFlags >> 5) & 1

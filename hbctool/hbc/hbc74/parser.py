@@ -27,7 +27,7 @@ regExpStorageS = structure["RegExpStorage"]
 cjsModuleTableS = structure["CJSModuleTable"]
 
 def align(f):
-    f.pad(BYTECODE_ALIGNMENT)
+    return f.pad(BYTECODE_ALIGNMENT)
 
 def parse(f):
     obj = {}
@@ -182,12 +182,35 @@ def export(obj, f):
     for i in range(header["functionCount"]):
         functionHeader = functionHeaders[i]
         if "small" in functionHeader:
+            smallFnHeader = functionHeader['small']
+            oldLargeHeaderOffset = (smallFnHeader["infoOffset"] << 16 )  | smallFnHeader["offset"]
+            oldLargeHeaderInstOffset = functionHeader['offset']
+            print(f"export() : oldLargeHeaderOffset = {oldLargeHeaderOffset}, largeHeaderInstOffset = {oldLargeHeaderInstOffset}")
+
+            adjustOffset = functionHeader.get('adjust_offset', 0)
+            functionHeader['offset'] += adjustOffset
+            # overflowAdjustOffset = obj.get('additionalInstructionSize', 0)
+            # functionHeader['offset'] += adjustOffset + overflowAdjustOffset
+            # functionHeader['infoOffset'] += adjustOffset + overflowAdjustOffset
+
+            overFlowedHeaderOffset = (smallFnHeader["infoOffset"] << 16 )  | smallFnHeader["offset"]
+            overFlowedHeaderOffset += obj.get('additionalInstructionSize', 0)
+            smallFnHeader['offset'] = overFlowedHeaderOffset & 0xFFFF
+            smallFnHeader['infoOffset'] = overFlowedHeaderOffset >> 16
+
+            print(f"export() : newLargeHeaderOffset = {overFlowedHeaderOffset}, newLargeHeaderInstOffset = {functionHeader['offset']}")
+
+            functionHeader['small_pos'] = f.tell()
             for key in smallFunctionHeaderS:
                 write(f, functionHeader["small"][key], smallFunctionHeaderS[key])
             
             overflowedFunctionHeaders.append(functionHeader)
         
         else:
+            # Adjust offset for additional instructions
+            functionHeader['offset'] += functionHeader.get('adjust_offset', 0)
+            # functionHeader['infoOffset'] += obj.get("additionalInstructionSize", 0)
+            # Write the header structure
             for key in smallFunctionHeaderS:
                 write(f, functionHeader[key], smallFunctionHeaderS[key])
 
@@ -283,7 +306,9 @@ def export(obj, f):
     # Write remaining
     f.writeall(obj["inst"])
 
-    # Write Overflowed Function Header
+
+    print(f"Overflow section offset: {obj.get('additionalInstructionSize', 0)}")
+    ## Write Overflowed Function Header
     for overflowedFunctionHeader in overflowedFunctionHeaders:
         smallFunctionHeader = overflowedFunctionHeader["small"]
         large_offset = (smallFunctionHeader["infoOffset"] << 16 )  | smallFunctionHeader["offset"]
